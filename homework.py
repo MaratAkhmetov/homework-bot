@@ -41,6 +41,7 @@ HOMEWORK_VERDICTS = {
 
 class EndpointUnavailableError(Exception):
     """Исключение, возникающее при недоступности API-эндпоинта."""
+
     pass
 
 
