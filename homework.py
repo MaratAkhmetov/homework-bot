@@ -6,13 +6,15 @@ import logging
 import os
 import sys
 import time
+from http import HTTPStatus
 
 import requests
 from dotenv import load_dotenv
-from http import HTTPStatus
 from requests import RequestException
 from telebot import TeleBot
 from telebot.apihelper import ApiTelegramException
+
+from exceptions import EndpointUnavailableError
 
 load_dotenv()
 
@@ -39,12 +41,6 @@ HOMEWORK_VERDICTS = {
 }
 
 
-class EndpointUnavailableError(Exception):
-    """Исключение, возникающее при недоступности API-эндпоинта."""
-
-    pass
-
-
 def check_tokens():
     """Проверяет доступность переменных окружения."""
     required_vars = {
@@ -53,9 +49,10 @@ def check_tokens():
         'TELEGRAM_CHAT_ID': TELEGRAM_CHAT_ID,
     }
     missing = [name for name, value in required_vars.items() if not value]
+    absence_of_variables = f'Отсутствуют переменные окружения: {missing}'
     if missing:
-        logger.critical(f'Отсутствуют переменные окружения: {missing}')
-        raise EnvironmentError(f'Отсутствуют переменные окружения: {missing}')
+        logger.critical(absence_of_variables)
+        raise EnvironmentError(absence_of_variables)
 
 
 def send_message(bot, message):
@@ -63,7 +60,6 @@ def send_message(bot, message):
     logger.debug('Начало отправки сообщения в Telegram.')
     bot.send_message(os.getenv('TELEGRAM_CHAT_ID'), message)
     logger.debug(f'Сообщение отправлено в Telegram: {message}')
-    return True
 
 
 def get_api_answer(timestamp):
@@ -88,17 +84,13 @@ def check_response(response):
     """Проверяет ответ API на соответствие документации."""
     logger.debug('Начало проверки ответа API')
     if not isinstance(response, dict):
-        logger.error(f'Ответ API не является словарём. '
-                     f'Получен тип: {type(response).__name__}')
-        raise TypeError(f'Ожидался dict, но получен {type(response).__name__}')
+        raise TypeError('Ожидался dict в переменной "response", '
+                        f'но получен {type(response).__name__}')
     if 'homeworks' not in response:
-        logger.error('Отсутствует ключ "homeworks" в ответе API')
         raise KeyError('Ключ "homeworks" отсутствует в ответе API')
     homeworks = response['homeworks']
     if not isinstance(homeworks, list):
-        logger.error(f'Ключ "homeworks" не содержит список. '
-                     f'Получен тип: {type(homeworks).__name__}')
-        raise TypeError(f'Ожидался list в ключе "homeworks", '
+        raise TypeError('Ожидался list в ключе "homeworks", '
                         f'но получен {type(homeworks).__name__}')
     logger.debug('Ответ API успешно прошёл проверку')
     return homeworks
@@ -112,12 +104,10 @@ def parse_status(homework):
     if missing_keys:
         error_msg = ('Отсутствуют ключи в ответе API: '
                      f'{", ".join(missing_keys)}')
-        logger.error(error_msg)
         raise KeyError(error_msg)
     homework_name = homework['homework_name']
     status = homework['status']
     if status not in HOMEWORK_VERDICTS:
-        logger.error(f'Неожиданный статус домашней работы: {status}')
         raise ValueError(f'Неизвестный статус работы "{homework_name}": '
                          f'{status}')
     verdict = HOMEWORK_VERDICTS[status]
@@ -152,20 +142,20 @@ def main():
             timestamp = response.get('current_date', timestamp)
 
         except (ApiTelegramException, RequestException) as error:
-            logger.error(f'Ошибка при отправке сообщения в Telegram: {error}')
+            logger.exception('Ошибка при отправке сообщения в Telegram: '
+                             f'{error}')
 
         except Exception as error:
             error_message = f'Сбой в работе программы: {error}'
-            logger.error(error_message)
+            logger.exception(error_message)
+
             if error_message != last_sent_message:
                 try:
                     send_message(bot, error_message)
                     last_sent_message = error_message
                 except (ApiTelegramException, RequestException) as send_error:
-                    logger.error(
-                        f'Не удалось отправить сообщение об ошибке в Telegram:'
-                        f' {send_error}'
-                    )
+                    logger.exception('Не удалось отправить сообщение '
+                                     f'об ошибке в Telegram: {send_error}')
 
         finally:
             time.sleep(RETRY_PERIOD)
